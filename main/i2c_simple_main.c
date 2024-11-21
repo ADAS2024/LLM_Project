@@ -39,7 +39,7 @@ static const char *TAG = "LLM_Project";
 #define MPU6050_RESET_BIT           7
 
 #define MPU6050_GYRO_XOUT_H         0x43        /*!< Register address for gyroscope data (X axis high byte) */
-#define GYRO_THRESHOLD              250      /*!< Threshold to detect movement direction */
+#define GYRO_THRESHOLD              1000     /*!< Threshold to detect movement direction */
 
 
 
@@ -66,8 +66,11 @@ esp_err_t mpu6050_init() {
 
 
 esp_err_t read_data(int16_t *gyro_data) {
-    uint8_t data_h[14];
+    uint8_t data_h[6];
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (MPU6050_SENSOR_ADDR << 1) | I2C_MASTER_WRITE, true);
+    i2c_master_write_byte(cmd, MPU6050_GYRO_XOUT_H, true);
     i2c_master_start(cmd);
     i2c_master_write_byte(cmd, (MPU6050_SENSOR_ADDR << 1) | I2C_MASTER_READ, true);
     i2c_master_read(cmd, data_h, sizeof(data_h), I2C_MASTER_LAST_NACK);
@@ -77,9 +80,9 @@ esp_err_t read_data(int16_t *gyro_data) {
     i2c_cmd_link_delete(cmd);
 
     if (ret == ESP_OK) {
-        gyro_data[0] = (data_h[8] << 8) | data_h[9];
-        gyro_data[1] = (data_h[10] << 8) | data_h[11];
-        gyro_data[2] = (data_h[12] << 8) | data_h[13];
+        gyro_data[0] = (data_h[0] << 8) | data_h[1];
+        gyro_data[1] = (data_h[2] << 8) | data_h[3];
+        gyro_data[2] = (data_h[4] << 8) | data_h[5];
     }
 
     return ret;
@@ -93,15 +96,12 @@ void detect_movement(int16_t *gyro_data) {
     int16_t gyro_y = gyro_data[1];
     int16_t gyro_z = gyro_data[2];
 
-
-    ESP_LOGI(TAG, "Gyro Data: Gyro_X=%d, Gyro_Y=%d, Gyro_Z=%d", gyro_x, gyro_y, gyro_z);
+    ESP_LOGI(TAG, "Gyro_X=%d, Gyro_Y=%d, Gyro_Z=%d",
+             gyro_x, gyro_y, gyro_z);
 }
 
-        
 void app_main() {
-
     ESP_ERROR_CHECK(nvs_flash_init());
-    
 
     i2c_config_t conf = {
         .mode = I2C_MODE_MASTER,
@@ -118,13 +118,12 @@ void app_main() {
     ESP_ERROR_CHECK(mpu6050_init());
 
     int16_t gyro_data[3];
-
     while (1) {
         if (read_data(gyro_data) == ESP_OK) {
             detect_movement(gyro_data);
         } else {
             ESP_LOGE(TAG, "Failed to read gyroscope data");
         }
-        vTaskDelay(1000 / portTICK_PERIOD_MS);  
+        vTaskDelay(10 / portTICK_PERIOD_MS);  
     }
 }

@@ -4,23 +4,29 @@ import time
 import os
 
 
+
+
 def log_data_to_file(gyro_x, gyro_y, gyro_z):
     txtfile_path = "txt_files"
-    word = "What" ## Change word [What, Is, A, Spectrogram, Ball]
-    run = "00" ## changed this per file 00-20
-    file_name = f"{word + "_" + run}.txt"
+    word = "What"  # Change word [What, Is, A, Spectrogram, Ball]
+    file_name = f"{word}.txt"
     file_path = os.path.join(txtfile_path, file_name)
 
+    os.makedirs(txtfile_path, exist_ok=True)
+
     with open(file_path, 'a') as f:
-        f.write(f"{gyro_x},{gyro_y},{gyro_z}\n")
-        print(f"Data logged to {file_name}: {gyro_x},{gyro_y},{gyro_z}")
+        if gyro_x == "" and gyro_y == "" and gyro_z == "":
+            f.write("\n")  # Write a blank line for no movement
+        else:
+            f.write(f"{gyro_x},{gyro_y},{gyro_z}\n")
+            print(f"Data logged to {file_name}: {gyro_x},{gyro_y},{gyro_z}")
 
 def main():
     try:
-        ser = serial.Serial('/dev/ttyUSB0', 115200, timeout=1) # I'm running a Linux Machine. Change this depending on what machine you have.
+        ser = serial.Serial('/dev/ttyUSB0', 115200, timeout=1)  # Adjust to your serial port
         time.sleep(2)
         pattern = re.compile(
-            r"Gyro Data: Gyro_X=(-?\d+), Gyro_Y=(-?\d+), Gyro_Z=(-?\d+)"
+            r"Gyro_X=(-?\d+), Gyro_Y=(-?\d+), Gyro_Z=(-?\d+)"
         )
         print("Started data collection. Do CTRL+C to stop the process.")
 
@@ -33,9 +39,13 @@ def main():
                 gyro_y = int(match.group(2))
                 gyro_z = int(match.group(3))
 
-                print(f"Gyro_X={gyro_x}, Gyro_Y={gyro_y}, Gyro_Z={gyro_z}")
-                log_data_to_file(gyro_x, gyro_y, gyro_z)
-
+                if abs(gyro_x) > 1500 or abs(gyro_y) > 1500 or abs(gyro_z) > 1500:
+                    print(f"Movement detected! Gyro_X={gyro_x}, Gyro_Y={gyro_y}, Gyro_Z={gyro_z}")
+                    log_data_to_file(gyro_x, gyro_y, gyro_z)
+                else:
+                    print("No significant movement detected. Logging a blank line.")
+                    log_data_to_file("", "", "")
+                    
     except Exception as e:
         print(f"Error: {e}")
 
