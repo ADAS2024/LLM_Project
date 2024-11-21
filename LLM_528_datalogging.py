@@ -8,7 +8,7 @@ import os
 
 def log_data_to_file(gyro_x, gyro_y, gyro_z):
     txtfile_path = "txt_files"
-    word = "What"  # Change word [What, Is, A, Spectrogram, Ball]
+    word = "Ball"  # Change word [What, Is, A, Spectrogram, Ball]
     file_name = f"{word}.txt"
     file_path = os.path.join(txtfile_path, file_name)
 
