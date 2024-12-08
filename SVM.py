@@ -2,18 +2,26 @@ import os
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from sklearn.svm import SVC
 import matplotlib.pyplot as plt
+
+from sklearn.svm import SVC
 from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
 from sklearn.model_selection import train_test_split
 
+from scipy.stats import mode
+from scipy.signal import resample
+
+from gyro_funcs import *
+import json
+import ast
+from tensorflow.keras.preprocessing.sequence import pad_sequences
 
 def preprocess(word):
-    path = "txt_files/What.txt" ## with more words we make this code loop
+    path = f"txt_files/{word}.txt" ## with more words we make this code loop
     chunks = process_file(path)
-    put_into_csv("What", chunks)
+    put_into_csv(word, chunks)
 
 def put_into_csv(word, chunks):
     txtfile_path = "word_csvs"
@@ -22,12 +30,12 @@ def put_into_csv(word, chunks):
 
     os.makedirs(txtfile_path, exist_ok=True)
 
-    column_names = [word, "Signal Data"]
+    column_names = ["Word", "Signal Data"]
     data = []
     for chunk in chunks:
-        data.append([word, chunk])
+        data.append([word, json.dumps(chunk)])
     df = pd.DataFrame(data, columns=column_names)
-    df.to_csv(file_path)
+    df.to_csv(file_path, index=False, quotechar='"')
 
 
 def process_file(path):
@@ -44,54 +52,36 @@ def process_file(path):
 
             else:
                 if line:
-                    current_chunk.append(line)
+                    # Convert line into a list of floats, assuming the data is comma-separated
+                    float_values = [float(i) for i in line.split(',')]
+                    current_chunk.append(float_values)
         
         if current_chunk:
             chunks.append(current_chunk)
 
     return chunks
 
-## need to fix for later TODO
-def merge_into_csvs(txt_file_path):
-    input_path = txt_file_path  
-    output_path = "word_csvs" 
-    os.makedirs(output_path, exist_ok=True)
-
-    word = ["What", "Is", "A", "Spectrogram", "Ball"]
-    for word in words:
-
-        word_data = []
-
-        for i in range(21): ## goes from 00-20
-            filename = f"{word}_{i:02d}.txt"
-            file_path = os.path.join(input_path, filename)
-            
-            with open(file_path, 'r') as file:
-                lines = file.readlines()
-                for line in lines:
-                    values = line.strip().split(',')  
-                    word_data.append([word] + values)  
-            
-
-        column_names = ["Word","Gyro_X", "Gyro_Y", "Gyro_Z"]
-        df = pd.DataFrame(word_data, columns=column_names)
-        output_file = os.path.join(output_path, f"{word}.csv")
-        df.to_csv(output_file, index=False)
-        print(f"{word} data saved to {output_file}")
-
-
+## train and save and predict are from my HW3 will need to update for code TODO
 def train_and_save_svm(X_train, y_train, model_path, scaler_path):
+    signal_lens = [len(signal) for signal in X_train]
+    mode_len = np.bincount(signal_lens).argmax()
+
+    X_train_pad = pad_sequences(X_train, maxlen = mode_len, padding = 'post', dtype = 'float32')
+
+    samples = X_train_pad.shape[0]
+    features = X_train_pad.shape[1] * X_train_pad.shape[2]
+    X_train_flat = X_train_pad.reshape(samples, -1)
+    
     scaler = StandardScaler()
-    X_train = scaler.fit_transform(X_train)
+    X_train_scaled = scaler.fit_transform(X_train_flat)
     svm_classifier = SVC(kernel='linear')
-    svm_classifier.fit(X_train, y_train)
+    svm_classifier.fit(X_train_scaled, y_train)
 
     joblib.dump(svm_classifier, model_path)
     joblib.dump(scaler, scaler_path)
+    print("Model and Scaler dumped")
 
-    return scaler
-
-def real_time_predict(model_path, scaler_path):
+def real_time_predict(model_path, scaler_path): ## plan: put gyro data in file, parse file, tokenize on newlines and pass each block of gyro signals to predict
 
     svm_classifier = joblib.load(model_path)
     scaler = joblib.load(scaler_path)
@@ -100,53 +90,28 @@ def real_time_predict(model_path, scaler_path):
     ser = serial.Serial('/dev/ttyUSB0', 115200, timeout=1)
     time.sleep(2)
 
-    pattern = re.compile(
-        r"Gyro_X=(-?\d+), Gyro_Y=(-?\d+), Gyro_Z=(-?\d+)"
-    )
+    gyro_x_offset, gyro_y_offset, gyro_z_offset = calibrate_gyro(ser)
+    gyro_func(ser, gyro_x_offset, gyro_y_offset, gyro_z_offset, SVM_ongoing=True)
 
-    print("Serial port opened. Listening for data... (CTRL+C to stop listening)")
-
-    try:
-        while True:
-            line = ser.readline().decode('utf-8').strip()
-            if not line:
-                continue
-
-            try:
-                match = pattern.search(line)
-
-                if match:
-
-                    gyro_x = int(match.group(1))
-                    gyro_y = int(match.group(2))
-                    gyro_z = int(match.group(3))
-                    
-
-                    data = [gyro_x, gyro_y, gyro_z]
-                    scaled_data = scaler.transform([data])
-                    prediction = svm_classifier.predict(scaled_data)[0]
-                    print("Predicted Direction of Gesture: {}".format(prediction))
-                    print("Actual Direction: {}".format(direction))
-                    print()
-            
-            except Exception as e:
-                print("Error Processing Data: {}".format(e))
-
-    except KeyboardInterrupt:
-        print("\nClosing Serial Port...")
-        ser.close()
-        print("Exiting..")
+    ## TODO test if above code works properly and parse results.txt
 
 def main():
-    preprocess("What")
+    ## note: will likely loop over all words
+    ## preprocess("What")
    
     ##consolidate_into_one("word_csvs")
 
-    ##data = pd.read_csv("word_csvs/combined_words.csv")
-    ##X = data[["Gyro_X", "Gyro_Y", "Gyro_Z"]].values.astype(np.float32)
-    ##y = data["Word"]
-    ##X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    data = pd.read_csv("word_csvs/What.csv")
 
-    ##train_and_evaluate_svm(X_train, y_train, X_test, y_test)
+    data["Signal Data"] = data["Signal Data"].apply(ast.literal_eval)
+
+    X = np.array(data["Signal Data"])
+    y = data["Word"].values
+
+    model_path = "svm_model.pkl"
+    scaler_path = "scaler.pkl"
+
+    X_train, _, y_train, _ = train_test_split(X, y, test_size=None, random_state=42)
+    train_and_save_svm(X_train, y_train, model_path, scaler_path)
 
 main()

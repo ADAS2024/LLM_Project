@@ -38,18 +38,19 @@ def calibrate_gyro(ser, sample_duration=5):
     print(f"Calibration complete. Offsets - Gyro_X: {gyro_x_offset}, Gyro_Y: {gyro_y_offset}, Gyro_Z: {gyro_z_offset}")
     return gyro_x_offset, gyro_y_offset, gyro_z_offset
 
-
-def gyro_func(ser, gyro_x_offset, gyro_y_offset, gyro_z_offset):
+## SVM_ongoing to distinguish whether we are data collecting or testing on real time gyro data
+def gyro_func(ser, gyro_x_offset, gyro_y_offset, gyro_z_offset, word = None, SVM_ongoing = False):
     try:
         pattern = re.compile(
             r"Gyro_X=(-?\d+), Gyro_Y=(-?\d+), Gyro_Z=(-?\d+)"
         )
-        print("Started data collection. Do CTRL+C to stop the process.")
-
+        if SVM_ongoing:
+            print("Serial port opened. Listening for data... (CTRL+C to stop listening)")
+        else:
+            print("Started data collection. Do CTRL+C to stop the process.")
         movement_threshold = 1500
         pause_threshold = 400
         data_chunk = []
-        word = "What"
 
         while True:
             line = ser.readline().decode('utf-8').strip()
@@ -67,9 +68,10 @@ def gyro_func(ser, gyro_x_offset, gyro_y_offset, gyro_z_offset):
                 elif abs(gyro_x) < pause_threshold and abs(gyro_y) < pause_threshold and abs(gyro_z) < pause_threshold:
                     if data_chunk:
                         print(f"Pause detected, logging chunk: {len(data_chunk)} samples.")
+                        
                         for gyro_data in data_chunk:
-                            log_data_to_file(*gyro_data, word=word)
-                        log_data_to_file("", "", "", word=word, is_pause=True)
+                            log_data_to_file(*gyro_data, word=word, SVM_ongoing=SVM_ongoing)
+                        log_data_to_file("", "", "", word=word, is_pause=True, SVM_ongoing=SVM_ongoing)
                         data_chunk = []
 
             time.sleep(0.01)
@@ -81,3 +83,33 @@ def gyro_func(ser, gyro_x_offset, gyro_y_offset, gyro_z_offset):
         if 'ser' in locals() and ser.is_open:
             ser.close()
         print("Serial port closed")
+
+def log_data_to_file(gyro_x, gyro_y, gyro_z, word = None, is_pause=False, SVM_ongoing = False):
+    txt_file_path = ""
+    file_name = ""
+    file_path = ""
+
+    ## logging live data to file for prediction
+    if SVM_ongoing and word == None:
+        txtfile_path = "result_files"
+        file_name = "result.txt"
+        file_path = os.path.join(txtfile_path, file_name)
+    
+    # gathering training data
+    else:
+        txtfile_path = "txt_files"
+        file_name = f"{word}.txt"
+        file_path = os.path.join(txtfile_path, file_name)
+
+    os.makedirs(txtfile_path, exist_ok=True)
+
+    with open(file_path, 'a') as f:
+        if gyro_x == "" and gyro_y == "" and gyro_z == "":
+            f.write("\n")  # Write a blank line for no movement
+        else:
+            f.write(f"{gyro_x},{gyro_y},{gyro_z}\n")
+            print(f"Data logged: {gyro_x},{gyro_y},{gyro_z}")
+        
+        if is_pause:
+            f.write("--END OF CHUNK--\n")
+            print("End of chunk added.")
