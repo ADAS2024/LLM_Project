@@ -9,25 +9,49 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
 from sklearn.model_selection import train_test_split
 
-def consolidate_into_one(word_file_path):
-    files = ["Up.csv", "Down.csv", "Left.csv", "Right.csv"]
-    dataframes = []
 
-    for file in files:
-        file_path = os.path.join(word_file_path, file)
-        df = pd.read_csv(file_path)
+def preprocess(word):
+    path = "txt_files/What.txt" ## with more words we make this code loop
+    chunks = process_file(path)
+    put_into_csv("What", chunks)
 
-        word = os.path.splitext(file)[0]
-        df['Word'] = word
-        print(gesture_name)
-        dataframes.append(df)
-    
-    combined_df = pd.concat(dataframes, ignore_index=True)
+def put_into_csv(word, chunks):
+    txtfile_path = "word_csvs"
+    file_name = f"{word}.csv"
+    file_path = os.path.join(txtfile_path, file_name)
 
-    output_path = os.path.join(gesture_file_path, "combined_gestures.csv")
-    combined_df.to_csv(output_path, index=False)
+    os.makedirs(txtfile_path, exist_ok=True)
 
-    
+    column_names = [word, "Signal Data"]
+    data = []
+    for chunk in chunks:
+        data.append([word, chunk])
+    df = pd.DataFrame(data, columns=column_names)
+    df.to_csv(file_path)
+
+
+def process_file(path):
+    with open(path, 'r') as file:
+        chunks = []
+        current_chunk = []
+
+        for line in file:
+            line = line.strip()
+            if line == "--END OF CHUNK--":
+                if current_chunk:
+                    chunks.append(current_chunk)
+                    current_chunk = []
+
+            else:
+                if line:
+                    current_chunk.append(line)
+        
+        if current_chunk:
+            chunks.append(current_chunk)
+
+    return chunks
+
+## need to fix for later TODO
 def merge_into_csvs(txt_file_path):
     input_path = txt_file_path  
     output_path = "word_csvs" 
@@ -56,35 +80,73 @@ def merge_into_csvs(txt_file_path):
         print(f"{word} data saved to {output_file}")
 
 
-def train_and_evaluate_svm(X_train, y_train, X_test, y_test):
+def train_and_save_svm(X_train, y_train, model_path, scaler_path):
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
     svm_classifier = SVC(kernel='linear')
     svm_classifier.fit(X_train, y_train)
 
-    y_pred = svm_classifier.predict(X_test)
-    accuracy = accuracy_score(y_test, y_pred)
-    print(f'SVM accuracy: {accuracy:.3%}')
+    joblib.dump(svm_classifier, model_path)
+    joblib.dump(scaler, scaler_path)
 
-    class_labels = ["What", "Is", "A", "Spectrogram", "Ball"]
+    return scaler
 
-    conf_matrix = confusion_matrix(y_test, y_pred)
-    sns.heatmap(conf_matrix, annot=True, cmap="Blues", xticklabels=class_labels, yticklabels=class_labels)
-    plt.title(f'SVM Confusion Matrix\nAccuracy: {accuracy:.3%}')
-    plt.xlabel('pred')
-    plt.ylabel('actual')
-    plt.savefig("SVM_Confusion_Matrix.png", dpi=300, bbox_inches='tight')
-    plt.show()
-    plt.close()
+def real_time_predict(model_path, scaler_path):
 
+    svm_classifier = joblib.load(model_path)
+    scaler = joblib.load(scaler_path)
+
+    ## note, can likely import gyro_func here for cleaner code TODO
+    ser = serial.Serial('/dev/ttyUSB0', 115200, timeout=1)
+    time.sleep(2)
+
+    pattern = re.compile(
+        r"Gyro_X=(-?\d+), Gyro_Y=(-?\d+), Gyro_Z=(-?\d+)"
+    )
+
+    print("Serial port opened. Listening for data... (CTRL+C to stop listening)")
+
+    try:
+        while True:
+            line = ser.readline().decode('utf-8').strip()
+            if not line:
+                continue
+
+            try:
+                match = pattern.search(line)
+
+                if match:
+
+                    gyro_x = int(match.group(1))
+                    gyro_y = int(match.group(2))
+                    gyro_z = int(match.group(3))
+                    
+
+                    data = [gyro_x, gyro_y, gyro_z]
+                    scaled_data = scaler.transform([data])
+                    prediction = svm_classifier.predict(scaled_data)[0]
+                    print("Predicted Direction of Gesture: {}".format(prediction))
+                    print("Actual Direction: {}".format(direction))
+                    print()
+            
+            except Exception as e:
+                print("Error Processing Data: {}".format(e))
+
+    except KeyboardInterrupt:
+        print("\nClosing Serial Port...")
+        ser.close()
+        print("Exiting..")
 
 def main():
-    merge_into_csvs("txt_files")         ## these commands only need to be run once
-    consolidate_into_one("word_csvs")
+    preprocess("What")
+   
+    ##consolidate_into_one("word_csvs")
 
-    data = pd.read_csv("word_csvs/combined_words.csv")
-    X = data[["Gyro_X", "Gyro_Y", "Gyro_Z"]].values.astype(np.float32)
-    y = data["Word"]
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    ##data = pd.read_csv("word_csvs/combined_words.csv")
+    ##X = data[["Gyro_X", "Gyro_Y", "Gyro_Z"]].values.astype(np.float32)
+    ##y = data["Word"]
+    ##X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    train_and_evaluate_svm(X_train, y_train, X_test, y_test)
+    ##train_and_evaluate_svm(X_train, y_train, X_test, y_test)
 
 main()
