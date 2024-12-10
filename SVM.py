@@ -17,6 +17,25 @@ from gyro_funcs import *
 import json
 import ast
 from tensorflow.keras.preprocessing.sequence import pad_sequences
+import joblib
+
+def consolidate_into_one(word_file_path):
+    files = ["What.csv", "Is.csv", "A.csv", "Ball.csv", "Spectrogram.csv"]
+    dataframes = []
+
+    for file in files:
+        file_path = os.path.join(word_file_path, file)
+        df = pd.read_csv(file_path)
+
+        word = os.path.splitext(file)[0]
+        df['Word'] = word
+        print(word)
+        dataframes.append(df)
+    
+    combined_df = pd.concat(dataframes, ignore_index=True)
+
+    output_path = os.path.join(word_file_path, "combined_words.csv")
+    combined_df.to_csv(output_path, index=False)
 
 def preprocess(word):
     path = f"txt_files/{word}.txt" ## with more words we make this code loop
@@ -97,11 +116,11 @@ def real_time_predict(model_path, scaler_path): ## plan: put gyro data in file, 
 
 def main():
     ## note: will likely loop over all words
-    ## preprocess("What")
+    ## preprocess("Spectrogram")
    
-    ##consolidate_into_one("word_csvs")
+    ## consolidate_into_one("word_csvs")
 
-    data = pd.read_csv("word_csvs/What.csv")
+    data = pd.read_csv("word_csvs/combined_words.csv")
 
     data["Signal Data"] = data["Signal Data"].apply(ast.literal_eval)
 
