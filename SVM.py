@@ -81,11 +81,9 @@ def process_file(path):
     return chunks
 
 ## train and save and predict are from my HW3 will need to update for code TODO
-def train_and_save_svm(X_train, y_train, model_path, scaler_path):
-    signal_lens = [len(signal) for signal in X_train]
-    mode_len = np.bincount(signal_lens).argmax()
+def train_and_save_svm(X_train, y_train, model_path, scaler_path, maxlen):
 
-    X_train_pad = pad_sequences(X_train, maxlen = mode_len, padding = 'post', dtype = 'float32')
+    X_train_pad = pad_sequences(X_train, maxlen = maxlen, padding = 'post', dtype = 'float32')
 
     samples = X_train_pad.shape[0]
     features = X_train_pad.shape[1] * X_train_pad.shape[2]
@@ -124,6 +122,8 @@ def main():
 
     data["Signal Data"] = data["Signal Data"].apply(ast.literal_eval)
 
+    maxlen = max(len(signal) for signal in data["Signal Data"])
+
     X = np.array(data["Signal Data"])
     y = data["Word"].values
 
@@ -131,6 +131,6 @@ def main():
     scaler_path = "scaler.pkl"
 
     X_train, _, y_train, _ = train_test_split(X, y, test_size=None, random_state=42)
-    train_and_save_svm(X_train, y_train, model_path, scaler_path)
+    train_and_save_svm(X_train, y_train, model_path, scaler_path, maxlen)
 
 main()
