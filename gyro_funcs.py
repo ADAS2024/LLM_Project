@@ -62,7 +62,7 @@ def gyro_func(ser, gyro_x_offset, gyro_y_offset, gyro_z_offset, word = None, SVM
                 gyro_z = int(match.group(3)) - gyro_z_offset
 
                 if abs(gyro_x) > movement_threshold or abs(gyro_y) > movement_threshold or abs(gyro_z) > movement_threshold:
-                    print(f"Movement detected! Gyro_X={gyro_x}, Gyro_Y={gyro_y}, Gyro_Z={gyro_z}")
+                    # print(f"Movement detected! Gyro_X={gyro_x}, Gyro_Y={gyro_y}, Gyro_Z={gyro_z}")
                     data_chunk.append((gyro_x, gyro_y, gyro_z))  
 
                 elif abs(gyro_x) < pause_threshold and abs(gyro_y) < pause_threshold and abs(gyro_z) < pause_threshold:
@@ -71,18 +71,19 @@ def gyro_func(ser, gyro_x_offset, gyro_y_offset, gyro_z_offset, word = None, SVM
                         
                         for gyro_data in data_chunk:
                             log_data_to_file(*gyro_data, word=word, SVM_ongoing=SVM_ongoing)
-                        log_data_to_file("", "", "", word=word, is_pause=True, SVM_ongoing=SVM_ongoing)
+                        # log_data_to_file("", "", "", word=word, is_pause=True, SVM_ongoing=SVM_ongoing)
                         data_chunk = []
+                        break
 
             time.sleep(0.01)
 
     except Exception as e:
         print(f"Error: {e}")
 
-    finally:
-        if 'ser' in locals() and ser.is_open:
-            ser.close()
-        print("Serial port closed")
+    # finally:
+    #     if 'ser' in locals() and ser.is_open:
+    #         ser.close()
+    #     print("Serial port closed")
 
 def log_data_to_file(gyro_x, gyro_y, gyro_z, word = None, is_pause=False, SVM_ongoing = False):
     txt_file_path = ""
@@ -104,12 +105,5 @@ def log_data_to_file(gyro_x, gyro_y, gyro_z, word = None, is_pause=False, SVM_on
     os.makedirs(txtfile_path, exist_ok=True)
 
     with open(file_path, 'a') as f:
-        if gyro_x == "" and gyro_y == "" and gyro_z == "":
-            f.write("\n")  # Write a blank line for no movement
-        else:
-            f.write(f"{gyro_x},{gyro_y},{gyro_z}\n")
-            print(f"Data logged: {gyro_x},{gyro_y},{gyro_z}")
-        
-        if is_pause:
-            f.write("--END OF CHUNK--\n")
-            print("End of chunk added.")
+        f.write(f"{gyro_x},{gyro_y},{gyro_z}\n")
+        # print(f"Data logged: {gyro_x},{gyro_y},{gyro_z}")

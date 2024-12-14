@@ -1,22 +1,24 @@
 import os
 import numpy as np
 import pandas as pd
-import seaborn as sns
+# import seaborn as sns
 import matplotlib.pyplot as plt
+import serial
 
 from sklearn.svm import SVC
 from sklearn.preprocessing import StandardScaler
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
+# from sklearn.neighbors import KNeighborsClassifier
+# from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
 from sklearn.model_selection import train_test_split
 
-from scipy.stats import mode
-from scipy.signal import resample
+# from scipy.stats import mode
+# from scipy.signal import resample
 
 from gyro_funcs import *
+from llm import llm_call
 import json
 import ast
-from tensorflow.keras.preprocessing.sequence import pad_sequences
+# from tensorflow.keras.preprocessing.sequence import pad_sequences
 import joblib
 
 def consolidate_into_one(word_file_path):
@@ -98,19 +100,60 @@ def train_and_save_svm(X_train, y_train, model_path, scaler_path, maxlen):
     joblib.dump(scaler, scaler_path)
     print("Model and Scaler dumped")
 
-def real_time_predict(model_path, scaler_path): ## plan: put gyro data in file, parse file, tokenize on newlines and pass each block of gyro signals to predict
+def real_time_predict(model_path, scaler_path, maxlen): ## plan: put gyro data in file, parse file, tokenize on newlines and pass each block of gyro signals to predict
 
     svm_classifier = joblib.load(model_path)
     scaler = joblib.load(scaler_path)
 
     ## note, can likely import gyro_func here for cleaner code TODO
-    ser = serial.Serial('/dev/ttyUSB0', 115200, timeout=1)
+    ser = serial.Serial('/dev/tty.SLAB_USBtoUART', 115200, timeout=1)
     time.sleep(2)
 
     gyro_x_offset, gyro_y_offset, gyro_z_offset = calibrate_gyro(ser)
-    gyro_func(ser, gyro_x_offset, gyro_y_offset, gyro_z_offset, SVM_ongoing=True)
 
-    ## TODO test if above code works properly and parse results.txt
+    pred_words = []
+    while True:
+        # Reset results file
+        filename = "result_files/result.txt"
+        with open(filename, "w") as f:
+            pass
+
+        gyro_func(ser, gyro_x_offset, gyro_y_offset, gyro_z_offset, SVM_ongoing=True)
+
+        ## TODO test if above code works properly and parse results.txt
+    
+        data = pd.read_csv(filename, header=None).values.astype(np.float32)
+        print(data.shape)
+
+        # Pad data
+        padded_data = np.pad(data, ((0, maxlen-data.shape[0]), (0,0)))
+
+        # Flatten data
+        flattened_data = padded_data.flatten()
+
+        # Predict
+        pred = svm_classifier.predict(flattened_data.reshape(1, -1))[0]
+        pred_words.append(pred)
+        print(pred)
+
+        t = np.arange(0, padded_data.shape[0])
+        plt.figure()
+        plt.plot(t, padded_data[:, 0], label="gyro x")
+        plt.plot(t, padded_data[:, 1], label="gyro y")
+        plt.plot(t, padded_data[:, 2], label="gyro z")
+        plt.legend()
+        plt.savefig("plot.png")
+        plt.close()
+        # input()
+
+        if pred == "Ball" or pred == "Spectrogram":
+            llm_message = " ".join(pred_words)
+            print("User Prompt: " + llm_message)
+            llm_call(llm_message)
+            input("Press ENTER when ready for next prompt.")
+
+        # time.sleep(3)
+
 
 def main():
     ## note: will likely loop over all words
@@ -130,7 +173,9 @@ def main():
     model_path = "svm_model.pkl"
     scaler_path = "scaler.pkl"
 
-    X_train, _, y_train, _ = train_test_split(X, y, test_size=None, random_state=42)
-    train_and_save_svm(X_train, y_train, model_path, scaler_path, maxlen)
+    # X_train, _, y_train, _ = train_test_split(X, y, test_size=None, random_state=42)
+    # train_and_save_svm(X_train, y_train, model_path, scaler_path, maxlen)
+
+    real_time_predict(model_path, scaler_path, maxlen)
 
 main()
