@@ -1,24 +1,17 @@
 import os
 import numpy as np
 import pandas as pd
-# import seaborn as sns
 import matplotlib.pyplot as plt
 import serial
 
 from sklearn.svm import SVC
 from sklearn.preprocessing import StandardScaler
-# from sklearn.neighbors import KNeighborsClassifier
-# from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
 from sklearn.model_selection import train_test_split
-
-# from scipy.stats import mode
-# from scipy.signal import resample
 
 from gyro_funcs import *
 from llm import llm_call
 import json
 import ast
-# from tensorflow.keras.preprocessing.sequence import pad_sequences
 import joblib
 
 def consolidate_into_one(word_file_path):
@@ -70,7 +63,6 @@ def process_file(path):
                 if current_chunk:
                     chunks.append(current_chunk)
                     current_chunk = []
-
             else:
                 if line:
                     # Convert line into a list of floats, assuming the data is comma-separated
@@ -85,7 +77,7 @@ def process_file(path):
 ## train and save and predict are from my HW3 will need to update for code TODO
 def train_and_save_svm(X_train, y_train, model_path, scaler_path, maxlen):
 
-    X_train_pad = pad_sequences(X_train, maxlen = maxlen, padding = 'post', dtype = 'float32')
+    X_train_pad = np.pad(X_train, maxlen = maxlen, padding = 'post', dtype = 'float32')
 
     samples = X_train_pad.shape[0]
     features = X_train_pad.shape[1] * X_train_pad.shape[2]
@@ -144,16 +136,12 @@ def real_time_predict(model_path, scaler_path, maxlen): ## plan: put gyro data i
         plt.legend()
         plt.savefig("plot.png")
         plt.close()
-        # input()
 
         if pred == "Ball" or pred == "Spectrogram":
             llm_message = " ".join(pred_words)
             print("User Prompt: " + llm_message)
             llm_call(llm_message)
             input("Press ENTER when ready for next prompt.")
-
-        # time.sleep(3)
-
 
 def main():
     ## note: will likely loop over all words
