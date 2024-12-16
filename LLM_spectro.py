@@ -1,51 +1,81 @@
-import numpy as np
-import matplotlib.pyplot as plt
-import pandas as pd
 import os
+import numpy as np
+from scipy.fft import fft, fftfreq
+import matplotlib.pyplot as plt
+from scipy.signal import spectrogram
 
-def load_data(runs):
-    df_dict = {}
-    for run in runs:
-        words = ["What", "Is", "A", "Spectrogram", "Ball"]
-        for word in words:
-            filepath = f"txt_files/{word}_{run}.txt"
-            df = pd.read_csv(filepath, sep=',', header=None, 
-                               names=["gyro_x", "gyro_y", "gyro_z"])
-            df_dict[(word, run)] = df
+def get_chunks(filename):
+    # gets Gyro x, y, z datas from each chunk in the files
+    chunks = []
+    x, y, z = [], [], []
 
-    return df_dict
+    with open(filename, "r") as f:
+        for line in f:
+            if "--END OF CHUNK--" in line:
+                if x and y and z:  # finished reading the current chunk
+                    chunks.append((np.array(x), np.array(y), np.array(z)))
+                x, y, z = [], [], []  # Reset for the next chunk
+            else:
+                parts = line.strip().split(",")
+                if len(parts) >= 3:
+                    x.append(float(parts[0]))
+                    y.append(float(parts[1]))
+                    z.append(float(parts[2]))
 
-def parameters(df):
-    df['timestamp'] = np.round(df['timestamp'] - df['timestamp'].min()).astype(int)
-    N = len(df['timestamp'])
-    T = np.mean(np.diff(df['timestamp']))  
-    fs = 1 / T if T > 0 else 100  
-    return N, T, fs, df['timestamp']
+    # Add the last chunk if any
+    if x and y and z:
+        chunks.append((np.array(x), np.array(y), np.array(z)))
 
-def spectro_analysis(data_dict):
-    figures_path = "spectrograms"
-    os.makedirs(figures_path, exist_ok=True)
+    return chunks
 
-    for (direction, run), df in data_dict.items():
-        gyro_axes = {"gyro_x": df["gyro_x"], "gyro_y": df["gyro_y"], "gyro_z": df["gyro_z"]}
+def save_spectrogram(data, sampling_rate, output_path, title):
+    # saving spectrogram graph at the specified plots
 
-        N, T, fs, time_values = parameters(df)  
+    nperseg = min(32, len(data))
+    noverlap = max(0, nperseg // 2)
 
-        
-        for axis, data in gyro_axes.items():
-            plt.figure(figsize=(12, 6))
-            plt.specgram(data, NFFT=6, Fs=fs, noverlap=5, cmap='plasma', xextent=(0, time_values.iloc[-1]))  
-            plt.colorbar(label='Power [dB]')
-            plt.ylabel('Frequency [Hz]')
-            plt.xlabel('Time [sec]')
-            plt.title(f'Spectrogram of {axis} - Gyro Data - {direction} Run {run}')
-            gyro_filename = f"gyro_spectro_{axis}_{direction}_{run}.png"
-            plt.savefig(os.path.join(figures_path, gyro_filename), dpi=300, bbox_inches='tight')
-            plt.close() 
-            
-def main():
-    runs = ["00", "02"]
-    df_dict = load_data(runs=runs)
-    spectro_analysis(df_dict)
+    if len(data) < 2:
+        print(f"Skipping spectrogram for data with insufficient length: {len(data)}")
+        return
 
-main()
+    f, t, Sxx = spectrogram(data, fs=sampling_rate, nperseg=nperseg, noverlap=noverlap)
+    plt.figure(figsize=(10, 6))
+    plt.pcolormesh(t, f, 10 * np.log10(Sxx), shading='gouraud', cmap='viridis')
+    plt.colorbar(label="Power (dB)")
+    plt.title(title)
+    plt.xlabel("Time (s)")
+    plt.ylabel("Frequency (Hz)")
+    plt.grid()
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.close()
+
+if __name__ == "__main__":
+    data_dir = "txt_files"
+    spectro_dir = "spectro_graphs"
+    sampling_rate = 100  # Adjust as needed
+
+    # Go through the data file for each word
+    for filename in os.listdir(data_dir):
+        if filename.endswith(".txt"):
+            filepath = os.path.join(data_dir, filename)
+
+            # Get the word (e.g., "A") from the filename
+            word = filename.split(".")[0]
+
+            # Create subdirectories for x, y, z axes within the word's directory
+            word_output_dir = os.path.join(spectro_dir, word)
+            for axis in ['x', 'y', 'z']:
+                axis_dir = os.path.join(word_output_dir, axis)
+                if not os.path.exists(axis_dir):
+                    os.makedirs(axis_dir)
+
+            # Read chunks from the file
+            chunks = get_chunks(filepath)
+
+            # Process each chunk
+            for i, (x, y, z) in enumerate(chunks):
+                # Save spectrograms for x, y, z axes
+                save_spectrogram(x, sampling_rate, os.path.join(word_output_dir, 'x', f"chunk_{i + 1}.png"), f"Gyro Spectrogram of {word} - Chunk {i + 1} (X-axis)")
+                save_spectrogram(y, sampling_rate, os.path.join(word_output_dir, 'y', f"chunk_{i + 1}.png"), f"Gyro Spectrogram of {word} - Chunk {i + 1} (Y-axis)")
+                save_spectrogram(z, sampling_rate, os.path.join(word_output_dir, 'z', f"chunk_{i + 1}.png"), f"Gyro Spectrogram of {word} - Chunk {i + 1} (Z-axis)")

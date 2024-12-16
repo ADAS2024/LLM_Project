@@ -1,75 +1,82 @@
-import numpy as np 
-import matplotlib.pyplot as plt
-import pandas as pd
 import os
-import random
+import numpy as np
+from scipy.fft import fft, fftfreq
+import matplotlib.pyplot as plt
 
-def load_data(runs):
-    df_list = []
-    for run in runs:
-        words = ["What", "Is", "A", "Spectrogram", "Ball"]
-        for word in words:
-            filepath = f"txt_files/{word}_{run}.txt"
-            df = pd.read_csv(filepath, sep=',', header=None, 
-                               names=["gyro_x", "gyro_y", "gyro_z"])
-            df_list.append((df, word, run))
+def get_chunks(filename):
+    # gets Gyro x, y, z datas from each chunk in the files
+    chunks = []
+    x, y, z = [], [], []
 
-    return df_list
+    with open(filename, "r") as f:
+        for line in f:
+            if "--END OF CHUNK--" in line:
+                if x and y and z:  # finished reading the current chunk
+                    chunks.append((np.array(x), np.array(y), np.array(z)))
+                x, y, z = [], [], []  # Reset for the next chunk
+            else:
+                parts = line.strip().split(",")
+                if len(parts) >= 3:
+                    x.append(float(parts[0]))
+                    y.append(float(parts[1]))
+                    z.append(float(parts[2]))
 
-def parameters(df):
-    N = len(df['timestamp'])
-    df['timestamp'] = df['timestamp'].astype(float)
-    T = np.mean(np.diff(df['timestamp'])) 
-    fs = 1 / T 
-   
-    return N, T, fs
+    # Add the last chunk if any
+    if x and y and z:
+        chunks.append((np.array(x), np.array(y), np.array(z)))
 
-def fft_analysis(data_list):
-    figures_path = "FFTs"
-    os.makedirs(figures_path, exist_ok=True)
+    return chunks
 
-    for df, direction, run in data_list:
-        
-        fft_gyro_x = np.fft.fft(df['gyro_x'])
-        fft_gyro_y = np.fft.fft(df['gyro_y'])
-        fft_gyro_z = np.fft.fft(df['gyro_z'])
+def compute_fft(data, sampling_rate):
+    N = len(data)
+    T = 1.0 / sampling_rate
+    yf = fft(data)
+    xf = fftfreq(N, T)[:N // 2]
+    return xf, 2.0 / N * np.abs(yf[:N // 2])
 
-        N, T, fs = parameters(df)
-        freq = np.fft.fftfreq(N, T)
+def save_fft_plot(xf, yf_x, yf_y, yf_z, output_path, title):
+    # saving fft_plots at the specified path
+    plt.figure(figsize=(10, 6))
+    plt.plot(xf, yf_x, label="X-axis")
+    plt.plot(xf, yf_y, label="Y-axis")
+    plt.plot(xf, yf_z, label="Z-axis")
+    plt.grid()
+    plt.xlabel("Frequency (Hz)")
+    plt.ylabel("Magnitude")
+    plt.title(title)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.close()
 
-        
-        positive_freq_indices = np.where(freq >= 0)
-        freq = freq[positive_freq_indices]
+if __name__ == "__main__":
+    data_dir = "txt_files"
+    fft_dir = "fft_graphs"
+    sampling_rate = 100  # Adjust as needed
 
-        amplitude_x_gyro = np.abs(fft_gyro_x)[positive_freq_indices]
-        amplitude_y_gyro = np.abs(fft_gyro_y)[positive_freq_indices]
-        amplitude_z_gyro = np.abs(fft_gyro_z)[positive_freq_indices]
+    # Go through the data file for each word
+    for filename in os.listdir(data_dir):
+        if filename.endswith(".txt"):
+            filepath = os.path.join(data_dir, filename)
 
-        
-        plt.figure(figsize=(10, 6))
-        plt.plot(freq, amplitude_x_gyro, label='FFT Gyro X', color='r')
-        plt.plot(freq, amplitude_y_gyro, label='FFT Gyro Y', color='g')
-        plt.plot(freq, amplitude_z_gyro, label='FFT Gyro Z', color='b')
-        plt.xlim(0, fs / 2)
-        plt.xlabel('Frequency (Hz)')
-        plt.ylabel('Magnitude')
-        plt.title(f'FFT of Gyroscope Data for Direction {direction} - Run {run}')
-        plt.legend()
-        plt.grid()
+            # Get the word (e.g., "A") from the filename
+            word = filename.split(".")[0]
 
-        gyro_filename = f"gyro_{direction}_{run}.png"
-        plt.savefig(os.path.join(figures_path, gyro_filename), dpi=300, bbox_inches='tight')
+            # Create a subdirectory for the word in the output directory
+            word_output_dir = os.path.join(fft_dir, word)
+            if not os.path.exists(word_output_dir):
+                os.makedirs(word_output_dir)
 
+            # Read chunks from the file
+            chunks = get_chunks(filepath)
 
+            # Process each chunk
+            for i, (x, y, z) in enumerate(chunks):
+                xf, yf_x = compute_fft(x, sampling_rate)
+                _, yf_y = compute_fft(y, sampling_rate)
+                _, yf_z = compute_fft(z, sampling_rate)
 
-def main():
-    runs = ["00", "02"]
-    df_list = load_data(runs=runs)
-    fft_analysis(df_list)
-
-    
-    
-    
-
-
-main()
+                # Save the FFT plot for the chunk
+                output_path = os.path.join(word_output_dir, f"chunk_{i + 1}.png")
+                title = f"Gyro FFT of {word} - Chunk {i + 1}"
+                save_fft_plot(xf, yf_x, yf_y, yf_z, output_path, title)
