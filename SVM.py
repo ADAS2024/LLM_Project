@@ -1,11 +1,13 @@
 import os
 import numpy as np
 import pandas as pd
+import seaborn as sns
 import matplotlib.pyplot as plt
 import serial
 
 from sklearn.svm import SVC
 from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
 from sklearn.model_selection import train_test_split
 
 from gyro_funcs import *
@@ -63,6 +65,7 @@ def process_file(path):
                 if current_chunk:
                     chunks.append(current_chunk)
                     current_chunk = []
+
             else:
                 if line:
                     # Convert line into a list of floats, assuming the data is comma-separated
@@ -92,6 +95,50 @@ def train_and_save_svm(X_train, y_train, model_path, scaler_path, maxlen):
     joblib.dump(scaler, scaler_path)
     print("Model and Scaler dumped")
 
+def train_test_svm(X_train, y_train, X_test, y_test, maxlen):
+    # print(X_train.shape)
+    print(maxlen)
+    for i in range(len(X_train)):
+        X_train[i] = np.pad(X_train[i], ((0, maxlen-X_train[i].shape[0]), (0,0)))
+
+    for i in range(len(X_test)):
+        X_test[i] = np.pad(X_test[i], ((0, maxlen-X_test[i].shape[0]), (0,0)))
+
+    X_train_pad = np.array(X_train)
+    X_test_pad = np.array(X_test)
+
+    print(X_train_pad.shape)
+
+    n_samples, n_data_pts, n_dims = X_train_pad.shape
+    n_samples_test = X_test_pad.shape[0]
+    flattened_train = X_train_pad.reshape(n_samples, n_data_pts*n_dims)
+    flattened_test = X_test_pad.reshape(n_samples_test, n_data_pts*n_dims)
+
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(flattened_train)
+    # X_test_scaled = scaler.fit_transform(flattened_test)
+
+    svm_classifier = SVC(kernel='linear')
+    print(X_train_scaled.shape)
+    print(flattened_train.shape)
+    print(y_train.shape)
+    # svm_classifier.fit(X_train_scaled, y_train)
+    svm_classifier.fit(flattened_train, y_train)
+
+    # y_pred = svm_classifier.predict(X_test_scaled)
+    y_pred = svm_classifier.predict(flattened_test)
+    accuracy = accuracy_score(y_test, y_pred)
+    print(f'SVM accuracy: {accuracy:.3%}')
+
+    # Plot the confusion matrix
+    conf_matrix = confusion_matrix(y_test, y_pred)
+    sns.heatmap(conf_matrix, annot=True, cmap="Blues")
+    plt.title('SVM Prediction Accuracy')
+    plt.xlabel('pred')
+    plt.ylabel('actual')
+    plt.savefig("conf_matrix.png")
+
+
 def real_time_predict(model_path, scaler_path, maxlen): ## plan: put gyro data in file, parse file, tokenize on newlines and pass each block of gyro signals to predict
 
     svm_classifier = joblib.load(model_path)
@@ -102,6 +149,7 @@ def real_time_predict(model_path, scaler_path, maxlen): ## plan: put gyro data i
     time.sleep(2)
 
     gyro_x_offset, gyro_y_offset, gyro_z_offset = calibrate_gyro(ser)
+    ser.close()
 
     pred_words = []
     while True:
@@ -109,6 +157,9 @@ def real_time_predict(model_path, scaler_path, maxlen): ## plan: put gyro data i
         filename = "result_files/result.txt"
         with open(filename, "w") as f:
             pass
+
+        # Reset serial
+        ser = serial.Serial('/dev/tty.SLAB_USBtoUART', 115200, timeout=1)
 
         gyro_func(ser, gyro_x_offset, gyro_y_offset, gyro_z_offset, SVM_ongoing=True)
 
@@ -124,24 +175,31 @@ def real_time_predict(model_path, scaler_path, maxlen): ## plan: put gyro data i
         flattened_data = padded_data.flatten()
 
         # Predict
-        pred = svm_classifier.predict(flattened_data.reshape(1, -1))[0]
+        pred = svm_classifier.predict(flattened_data.reshape(1,-1))[0]
         pred_words.append(pred)
         print(pred)
 
-        t = np.arange(0, padded_data.shape[0])
-        plt.figure()
-        plt.plot(t, padded_data[:, 0], label="gyro x")
-        plt.plot(t, padded_data[:, 1], label="gyro y")
-        plt.plot(t, padded_data[:, 2], label="gyro z")
-        plt.legend()
-        plt.savefig("plot.png")
-        plt.close()
+        # t = np.arange(0, padded_data.shape[0])
+        # plt.figure()
+        # plt.plot(t, padded_data[:, 0], label="gyro x")
+        # plt.plot(t, padded_data[:, 1], label="gyro y")
+        # plt.plot(t, padded_data[:, 2], label="gyro z")
+        # plt.legend()
+        # plt.savefig("plot.png")
+        # plt.close()
+        # input()
 
         if pred == "Ball" or pred == "Spectrogram":
             llm_message = " ".join(pred_words)
             print("User Prompt: " + llm_message)
             llm_call(llm_message)
             input("Press ENTER when ready for next prompt.")
+            pred_words = []
+
+        ser.close()
+
+        time.sleep(2)
+
 
 def main():
     ## note: will likely loop over all words
@@ -156,13 +214,17 @@ def main():
     maxlen = max(len(signal) for signal in data["Signal Data"])
 
     X = np.array(data["Signal Data"])
+    X = [np.array(x) for x in X]
     y = data["Word"].values
 
     model_path = "svm_model.pkl"
     scaler_path = "scaler.pkl"
 
-    # X_train, _, y_train, _ = train_test_split(X, y, test_size=None, random_state=42)
-    # train_and_save_svm(X_train, y_train, model_path, scaler_path, maxlen)
+    # print(X[1].shape)
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=45)
+    # train_test_svm(X_train, y_train, X_test, y_test, maxlen)
+    # train_and_save_svm(X_train, y_train, X_test, y_test, model_path, scaler_path, maxlen)
 
     real_time_predict(model_path, scaler_path, maxlen)
 

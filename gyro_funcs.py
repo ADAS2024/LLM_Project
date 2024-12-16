@@ -80,11 +80,6 @@ def gyro_func(ser, gyro_x_offset, gyro_y_offset, gyro_z_offset, word = None, SVM
     except Exception as e:
         print(f"Error: {e}")
 
-    # finally:
-    #     if 'ser' in locals() and ser.is_open:
-    #         ser.close()
-    #     print("Serial port closed")
-
 def log_data_to_file(gyro_x, gyro_y, gyro_z, word = None, is_pause=False, SVM_ongoing = False):
     txt_file_path = ""
     file_name = ""
@@ -95,6 +90,9 @@ def log_data_to_file(gyro_x, gyro_y, gyro_z, word = None, is_pause=False, SVM_on
         txtfile_path = "result_files"
         file_name = "result.txt"
         file_path = os.path.join(txtfile_path, file_name)
+
+        with open(file_path, 'a') as f:
+            f.write(f"{gyro_x},{gyro_y},{gyro_z}\n")
     
     # gathering training data
     else:
@@ -102,8 +100,15 @@ def log_data_to_file(gyro_x, gyro_y, gyro_z, word = None, is_pause=False, SVM_on
         file_name = f"{word}.txt"
         file_path = os.path.join(txtfile_path, file_name)
 
-    os.makedirs(txtfile_path, exist_ok=True)
+        with open(file_path, 'a') as f:
+            if gyro_x == "" and gyro_y == "" and gyro_z == "":
+                f.write("\n")  # Write a blank line for no movement
+            else:
+                f.write(f"{gyro_x},{gyro_y},{gyro_z}\n")
+                print(f"Data logged: {gyro_x},{gyro_y},{gyro_z}")
+            
+            if is_pause:
+                f.write("--END OF CHUNK--\n")
+                print("End of chunk added.")
 
-    with open(file_path, 'a') as f:
-        f.write(f"{gyro_x},{gyro_y},{gyro_z}\n")
-        # print(f"Data logged: {gyro_x},{gyro_y},{gyro_z}")
+    os.makedirs(txtfile_path, exist_ok=True)
